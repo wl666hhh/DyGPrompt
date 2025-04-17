@@ -6,7 +6,11 @@ import argparse
 import torch
 import numpy as np
 import pickle
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 from pathlib import Path
+from tqdm import tqdm
+torch.autograd.set_detect_anomaly(True)
 
 from evaluation.evalution import eval_edge_prediction
 from model.dygprompt_pretrain import DyGPrompt_pretrain
@@ -20,13 +24,13 @@ np.random.seed(0)#设置随机种子
 ### Argument and global variables
 parser = argparse.ArgumentParser('DyGPrompt self-supervised training')
 parser.add_argument('-d', '--data', type=str, help='Dataset name (eg. wikipedia or reddit)',
-                    default='wikipedia') # 数据集名
+                    default='reddit') # 数据集名
 parser.add_argument('--bs', type=int, default=200, help='Batch_size') # 批量大小
 parser.add_argument('--prefix', type=str, default='', help='Prefix to name the checkpoints') # checkpoint前缀
 parser.add_argument('--n_degree', type=int, default=10, help='Number of neighbors to sample') # 每次采样邻居数
 parser.add_argument('--n_head', type=int, default=2, help='Number of heads used in attention layer') # 注意力头数
-parser.add_argument('--n_epoch', type=int, default=50, help='Number of epochs') # 训练轮数
-parser.add_argument('--n_layer', type=int, default=1, help='Number of network layers') # 网络层数
+parser.add_argument('--n_epoch', type=int, default=1, help='Number of epochs') # 训练轮数
+parser.add_argument('--n_layer', type=int, default=5, help='Number of network layers') # 网络层数
 parser.add_argument('--lr', type=float, default=0.0001, help='Learning rate')  # 学习率
 parser.add_argument('--patience', type=int, default=5, help='Patience for early stopping') # 早停轮数
 parser.add_argument('--n_runs', type=int, default=1, help='Number of runs') # 运行次数
@@ -49,8 +53,7 @@ parser.add_argument('--aggregator', type=str, default="last", help='Type of mess
 parser.add_argument('--memory_update_at_end', action='store_true',
                     help='Whether to update memory at the end or at the start of the batch') # 是否在batch结尾更新内存
 parser.add_argument('--message_dim', type=int, default=100, help='Dimensions of the messages')# 消息维度
-parser.add_argument('--memory_dim', type=int, default=172, help='Dimensions of the memory for '
-                                                                'each user')# 节点内存维度
+
 parser.add_argument('--different_new_nodes', action='store_true',
                     help='Whether to use disjoint set of new nodes for train and val') #验证/测试新节点是否与训练不同
 parser.add_argument('--uniform', action='store_true',
@@ -84,7 +87,6 @@ NODE_DIM = args.node_dim # 节点嵌入维度
 TIME_DIM = args.time_dim # 时间嵌入维度
 USE_MEMORY = args.use_memory # 是否使用节点记忆
 MESSAGE_DIM = args.message_dim # 消息维度
-MEMORY_DIM = args.memory_dim # 内存维度
 
 Path("./saved_models/").mkdir(parents=True, exist_ok=True)# 创建保存模型的文件夹
 Path("./saved_checkpoints/").mkdir(parents=True, exist_ok=True)# 创建临时保存模型的文件夹
@@ -135,17 +137,10 @@ for i in range(args.n_runs):
   dygprompt = DyGPrompt_pretrain(neighbor_finder=train_ngh_finder, node_features=node_features,
             edge_features=edge_features, device=device,
             n_layers=NUM_LAYER,
-            n_heads=NUM_HEADS, dropout=DROP_OUT, use_memory=USE_MEMORY,
-            message_dimension=MESSAGE_DIM, memory_dimension=MEMORY_DIM,
-            memory_update_at_start=not args.memory_update_at_end,
-            embedding_module_type=args.embedding_module,
-            message_function=args.message_function,
-            aggregator_type=args.aggregator,
-            memory_updater_type=args.memory_updater,
             n_neighbors=NUM_NEIGHBORS,
-            use_destination_embedding_in_message=args.use_destination_embedding_in_message,
-            use_source_embedding_in_message=args.use_source_embedding_in_message,
             )
+  dygprompt.to(device)
+  dygprompt.load_state_dict(torch.load('saved_models/tgn-attn-wikipedia.pth'))
   criterion = CustomPreLoss()
   optimizer = torch.optim.Adam(dygprompt.parameters(), lr=LEARNING_RATE)
   dygprompt = dygprompt.to(device)
@@ -172,10 +167,11 @@ for i in range(args.n_runs):
     m_loss = [] #初始化存储每个批次损失的列表 m_loss
 
     logger.info('start {} epoch'.format(epoch)) # 训练每个批次
-    for k in range(0, num_batch, args.backprop_every):#对每个批次执行训练。每隔 args.backprop_every 个批次才执行一次反向传播。
+    for i,k in enumerate(tqdm(range(0, num_batch, args.backprop_every))):#对每个批次执行训练。每隔 args.backprop_every 个批次才执行一次反向传播。
       loss = 0
       optimizer.zero_grad()
-
+      if i==696:
+          print("hhh")
       for j in range(args.backprop_every):
         batch_idx = k + j
 
@@ -196,11 +192,11 @@ for i in range(args.n_runs):
           pos_label = torch.ones(size, dtype=torch.float, device=device)
           neg_label = torch.zeros(size, dtype=torch.float, device=device)
 
-        tgn = tgn.train()
-        source_node_embedding, destination_node_embedding, negative_node_embedding = tgn(sources_batch, destinations_batch, negatives_batch,
+        dygprompt = dygprompt.train()
+        source_node_embedding, destination_node_embedding, negative_node_embedding = dygprompt(sources_batch, destinations_batch, negatives_batch,
                                                             timestamps_batch, edge_idxs_batch, NUM_NEIGHBORS)
 
-        loss += criterion(source_node_embedding, destination_node_embedding, negative_node_embedding)
+        loss += criterion(source_node_embedding, destination_node_embedding, negative_node_embedding,device)
 
       loss /= args.backprop_every
 
@@ -213,10 +209,8 @@ for i in range(args.n_runs):
 
     #### Validation
     # Validation uses the full graph
-    loss.backward()
-    loss.backward()
     dygprompt.set_neighbor_finder(full_ngh_finder)
-    val_ap, val_auc = eval_edge_prediction(model=tgn,
+    val_ap, val_auc = eval_edge_prediction(model=dygprompt,
                                              negative_edge_sampler=val_rand_sampler,
                                              data=val_data,
                                              n_neighbors=NUM_NEIGHBORS)
@@ -243,16 +237,16 @@ for i in range(args.n_runs):
           logger.info('No improvement over {} epochs, stop training'.format(early_stopper.max_round))
           logger.info(f'Loading the best model at epoch {early_stopper.best_epoch}')
           best_model_path = get_checkpoint_path(early_stopper.best_epoch)
-          tgn.load_state_dict(torch.load(best_model_path))
+          dygprompt.load_state_dict(torch.load(best_model_path))
           logger.info(f'Loaded the best model at epoch {early_stopper.best_epoch} for inference')
-          tgn.eval()
+          dygprompt.eval()
           break
     else:
-          torch.save(tgn.state_dict(), get_checkpoint_path(epoch))
+          torch.save(dygprompt.state_dict(), get_checkpoint_path(epoch))
 
       ### Test
-  tgn.embedding_module.neighbor_finder = full_ngh_finder
-  test_ap, test_auc = eval_edge_prediction(model=tgn,
+  dygprompt.set_neighbor_finder(full_ngh_finder)
+  test_ap, test_auc = eval_edge_prediction(model=dygprompt,
                                                negative_edge_sampler=test_rand_sampler,
                                                data=test_data,
                                                n_neighbors=NUM_NEIGHBORS)
@@ -269,7 +263,7 @@ for i in range(args.n_runs):
     }, open(results_path, "wb"))
 
   logger.info('Saving TGN model')
-  torch.save(tgn.state_dict(), MODEL_SAVE_PATH)
+  torch.save(dygprompt.state_dict(), MODEL_SAVE_PATH)
   logger.info('TGN model saved')
 
 

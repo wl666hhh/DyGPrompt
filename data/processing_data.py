@@ -64,7 +64,7 @@ def run(data_name):
   feat = np.vstack([empty, feat])#最终特征索引0对应“特殊”边（比如padding等），以便在模型中用索引0时不会报错 同时保证数据对齐
 
   max_idx = max(new_df.u.max(), new_df.i.max())#找出编号过后的节点ID的最大值
-  rand_feat = np.zeros((max_idx + 1, 172)) #每一行代表一个节点的特征向量
+  rand_feat = np.zeros((max_idx + 1,172)) #每一行代表一个节点的特征向量
 
   new_df.to_csv(OUT_DF) #保存边列表（含新编号等信息）为csv文件
   np.save(OUT_FEAT, feat) #保存边特征矩阵为numpy文件

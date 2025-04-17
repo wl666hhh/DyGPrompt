@@ -1,1 +1,4 @@
 /.idea
+/log
+/saved_checkpoints
+/saved_models

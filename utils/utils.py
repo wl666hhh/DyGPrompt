@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
+torch.autograd.set_detect_anomaly(True)
 class EarlyStopMonitor(object):
   def __init__(self, max_round=3, higher_better=True, tolerance=1e-10):
     self.max_round = max_round
@@ -98,6 +99,7 @@ class NeighborFinder:
     # 这段代码用于初始化三个矩阵，分别存储源节点的邻居信息、边的时间戳和交互的索引  每个矩阵的每个位置代表一个源节点与其邻居之间的交互信息。这些矩阵会在后续处理中更新，表示每个源节点与邻居之间的交互情况，且交互会根据时间戳进行排序。
     neighbors = np.zeros((len(source_nodes), tmp_n_neighbors)).astype(
       np.int32)  # 该矩阵的每个元素 neighbors[i, j] 表示第 i 个源节点与第 j 个邻居之间的交互。
+
     edge_times = np.zeros((len(source_nodes), tmp_n_neighbors)).astype(
       np.float32)  # 该矩阵的每个元素 edge_times[i, j] 表示源节点 i 与其邻居 j 之间交互的时间戳。
     edge_idxs = np.zeros((len(source_nodes), tmp_n_neighbors)).astype(

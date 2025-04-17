@@ -16,7 +16,7 @@ class Data:
     self.n_unique_nodes = len(self.unique_nodes) #上面集合的节点数
 
 #预训练数据集函数
-def get_data(dataset_name,randomize_features=False,mode="pretrain"):
+def get_data(dataset_name,randomize_features=True,mode="pretrain"):
   ##
   graph_df = pd.read_csv('./data/ml_{}.csv'.format(dataset_name))
   edge_features = np.load('./data/ml_{}.npy'.format(dataset_name))

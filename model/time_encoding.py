@@ -1,5 +1,7 @@
 import torch
 import torch.nn as nn
+torch.autograd.set_detect_anomaly(True)
+
 import numpy as np
 class TimeEncoder(torch.nn.Module):
   """
