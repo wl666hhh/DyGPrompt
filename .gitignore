@@ -2,3 +2,6 @@
 /log
 /saved_checkpoints
 /saved_models
+*.csv
+*.npy
+*.pkl
