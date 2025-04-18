@@ -6,8 +6,6 @@ import argparse
 import torch
 import numpy as np
 import pickle
-import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 from pathlib import Path
 from tqdm import tqdm
 torch.autograd.set_detect_anomaly(True)
@@ -111,7 +109,7 @@ logger.addHandler(ch)
 logger.info(args) # 记录参数到日志
 
 ### 获得训练集验证集测试机数据
-node_features, edge_features, full_data, train_data, val_data, test_data = get_data(DATA,randomize_features=args.randomize_features)
+node_features, edge_features, full_data, train_data, val_data, test_data = get_data(DATA)
 
 #初始化训练邻居查找器以检索时间图
 train_ngh_finder = get_neighbor_finder(train_data, args.uniform)
@@ -138,9 +136,9 @@ for i in range(args.n_runs):
             edge_features=edge_features, device=device,
             n_layers=NUM_LAYER,
             n_neighbors=NUM_NEIGHBORS,
+
             )
-  dygprompt.to(device)
-  dygprompt.load_state_dict(torch.load('saved_models/tgn-attn-wikipedia.pth'))
+  dygprompt.load_state_dict(torch.load('saved_checkpoints/tgn-attn-wikipedia-0.pth'))
   criterion = CustomPreLoss()
   optimizer = torch.optim.Adam(dygprompt.parameters(), lr=LEARNING_RATE)
   dygprompt = dygprompt.to(device)

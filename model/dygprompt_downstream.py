@@ -3,7 +3,8 @@ import torch.nn as nn
 
 
 class DyGPrompt_downstream(nn.Module):
-    def __init__(self, pretrain_model, prompt_dim=64, bottleneck_ratio=2):
+    def __init__(self, neighbor_finder, node_features, edge_features, device, n_layers=2,n_heads=2,
+              n_neighbors=None):
         super().__init__()
         self.pretrain_model = pretrain_model #导入预训练模型
         self.n_feat = pretrain_model.n_node_features #结点维度

@@ -38,10 +38,9 @@ class DyGPrompt_pretrain(nn.Module):
 
     #用来计算每个数据集的头节点嵌入  尾结点嵌入  负样本嵌入
     def compute_temporal_embeddings(self,source_nodes, destination_nodes, negative_nodes, edge_times,
-                                  edge_idxs, n_neighbors=20):
+                                  edge_idxs,n_neighbors=20):
         n_samples = len(source_nodes) #源节点的数量（批次大小）
         nodes = np.concatenate([source_nodes, destination_nodes, negative_nodes])
-        unique_nodes, counts = np.unique(nodes, return_counts=True)
         timestamps = np.concatenate([edge_times, edge_times, edge_times])
         assert (self.n_layers >= 0)
         source_nodes_torch = torch.from_numpy(nodes).long().to(self.device)
@@ -53,14 +52,16 @@ class DyGPrompt_pretrain(nn.Module):
         #1.初始化
         t = self.time_encoder(timestamps_torch,self.device)
         t_neighbors = self.time_encoder(timestamps_neighbors_torch,self.device)
-        h = self.node_raw_features[source_nodes_torch, :]
-        node_features=torch.zeros((torch.max(source_nodes_torch)+1, h.shape[1])).to(self.device)#初始化每个结点的特征矩阵
+        node_features = self.node_raw_features #有记忆的 下一个batch仍然会被看到
+        h = node_features[source_nodes_torch, :]
 
         for i in range(self.n_layers):
             # 1.合并
             if i!=0:
                 # 使用非原地操作更新 node_features，并避免原地修改 h
-                node_features = node_features.clone().index_add(0, source_nodes_torch, h)
+                index = source_nodes_torch.unsqueeze(1).expand(-1, h.size(1))  # 形状 [n_samples, feature_dim]
+                # 执行 scatter
+                node_features = node_features.scatter(0, index, h)
                 # 创建新的 h 张量，而不是原地修改
                 h = node_features[source_nodes_torch].clone()  # 关键修改：去掉 inplace 操作
 

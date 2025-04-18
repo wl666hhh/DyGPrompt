@@ -14,7 +14,8 @@ class TimeEncoder(torch.nn.Module):
     assert time_dimension%2==0,"时间戳的输出维度应该为偶数d"
     self.time_dimension = time_dimension
     # 初始化频率参数 w1, w2, ..., wd/2
-    self.w = nn.Parameter(torch.randn(time_dimension // 2).unsqueeze(0)).to(device)
+    self.w = nn.Parameter(torch.randn(time_dimension // 2).unsqueeze(0))
+    self.to(device)  # 移动整个模块到设备
 
   def forward(self, t,device='cpu'):
     #判断输入是否为tensor
