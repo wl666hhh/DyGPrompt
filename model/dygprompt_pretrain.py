@@ -84,10 +84,12 @@ class DyGPrompt_pretrain(nn.Module):
             edge_deltas_torch=edge_deltas_torch.flatten()
             t_neighbors=self.time_encoder(edge_deltas_torch, self.device)
             neighbors_torch=torch.from_numpy(neighbors).long().to(self.device)
-            hneighbor=node_features[neighbors_torch, :]
-            hneighbor=hneighbor * time_prompt
 
-            hneighbor=node_cond_net(hneighbor)*hneighbor
+            hneighbor=node_features[neighbors_torch, :]
+            t_neighbors = t_neighbors * time_prompt
+            t_neighbors = node_cond_net(hneighbor)*t_neighbors
+
+
 
             edge_features = self.edge_raw_features[edge_idxs, :]  # 获取边的特征
 
