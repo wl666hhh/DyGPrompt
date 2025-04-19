@@ -31,9 +31,9 @@ def get_data(dataset_name,randomize_features=True,mode="pretrain"):
 
   if mode=="finetuning":
     # 计算后 20% 数据的切分点
-    split_index = int(0.20 * len(graph_df))  # 根据数据长度计算80%的切分点
+    split_index = int(0.80 * len(graph_df))  # 根据数据长度计算80%的切分点
     graph_df = graph_df[split_index:]  # 取前 80% 的行
-    edge_features = edge_features[split_index:]  # 假设边特征的数量与数据行数相同
+  # 假设边特征的数量与数据行数相同
 
   #如果要“打乱特征”，则用随机值替换节点特征
   if randomize_features:

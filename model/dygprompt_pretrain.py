@@ -38,22 +38,26 @@ class DyGPrompt_pretrain(nn.Module):
 
     #用来计算每个数据集的头节点嵌入  尾结点嵌入  负样本嵌入
     def compute_temporal_embeddings(self,source_nodes, destination_nodes, negative_nodes, edge_times,
-                                  edge_idxs,n_neighbors=20):
+                                  edge_idxs,n_neighbors=20,flag=False,node_features_finetuning=None,time_features_finetuning=None,time_prompt=None,node_cond_net=None):
         n_samples = len(source_nodes) #源节点的数量（批次大小）
         nodes = np.concatenate([source_nodes, destination_nodes, negative_nodes])
         timestamps = np.concatenate([edge_times, edge_times, edge_times])
         assert (self.n_layers >= 0)
         source_nodes_torch = torch.from_numpy(nodes).long().to(self.device)
         timestamps_torch = torch.from_numpy(timestamps).float().to(self.device)
-        timestamps_neighbors_torch=torch.from_numpy(np.repeat(timestamps, n_neighbors)).float().to(self.device)
-        #计算嵌入
 
 
-        #1.初始化
-        t = self.time_encoder(timestamps_torch,self.device)
-        t_neighbors = self.time_encoder(timestamps_neighbors_torch,self.device)
-        node_features = self.node_raw_features #有记忆的 下一个batch仍然会被看到
-        h = node_features[source_nodes_torch, :]
+        #1.初始化(预训练/微调）
+        if flag:
+            self.init_node_features(node_features_finetuning)
+            t=time_features_finetuning
+            node_features = self.node_raw_features  # 有记忆的 下一个batch仍然会被看到
+            h = node_features[source_nodes_torch, :]
+
+        else:
+            t = self.time_encoder(timestamps_torch,self.device)
+            node_features = self.node_raw_features #有记忆的 下一个batch仍然会被看到
+            h = node_features[source_nodes_torch, :]
 
         for i in range(self.n_layers):
             # 1.合并
@@ -61,21 +65,30 @@ class DyGPrompt_pretrain(nn.Module):
                 # 使用非原地操作更新 node_features，并避免原地修改 h
                 index = source_nodes_torch.unsqueeze(1).expand(-1, h.size(1))  # 形状 [n_samples, feature_dim]
                 # 执行 scatter
-                node_features = node_features.scatter(0, index, h)
+                node_features = node_features.scatter(0, index, h)    #可以改成GRU
                 # 创建新的 h 张量，而不是原地修改
                 h = node_features[source_nodes_torch].clone()  # 关键修改：去掉 inplace 操作
 
             #2.Fuse
             Fuse_h_t=self.Fuse(h,t)
+
             #3.寻找邻居特征向量+边的特征向量
             neighbors,edge_idxs, edge_times= self.neighbor_finder.get_temporal_neighbor(
                 nodes,
                 timestamps,
                 n_neighbors=n_neighbors)
             neighbors=neighbors.reshape(-1)
-            edge_idxs = torch.from_numpy(edge_idxs).long().to(self.device)  # (batch_size, n_neighbors)
+            edge_idxs = torch.from_numpy(edge_idxs).long().to(self.device)# (batch_size, n_neighbors)
+            edge_deltas = timestamps[:, np.newaxis] - edge_times
+            edge_deltas_torch = torch.from_numpy(edge_deltas).float().to(self.device)
+            edge_deltas_torch=edge_deltas_torch.flatten()
+            t_neighbors=self.time_encoder(edge_deltas_torch, self.device)
             neighbors_torch=torch.from_numpy(neighbors).long().to(self.device)
             hneighbor=node_features[neighbors_torch, :]
+            hneighbor=hneighbor * time_prompt
+
+            hneighbor=node_cond_net(hneighbor)*hneighbor
+
             edge_features = self.edge_raw_features[edge_idxs, :]  # 获取边的特征
 
             mask=torch.from_numpy(neighbors).long().reshape(-1,n_neighbors).to(self.device)
@@ -127,7 +140,11 @@ class DyGPrompt_pretrain(nn.Module):
     def set_neighbor_finder(self, neighbor_finder):
         self.neighbor_finder = neighbor_finder
 
+    def init_node_features(self,node_features):
+        self.node_raw_features = node_features
 
+    def get_node_features(self):
+        return self.node_raw_features.detach()
 
 
 

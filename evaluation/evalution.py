@@ -47,6 +47,69 @@ def eval_edge_prediction(model, negative_edge_sampler, data, n_neighbors, batch_
 
   return np.mean(val_ap), np.mean(val_auc)
 
+@torch.no_grad()
+def eval_edge_prediction_auc(model,
+                              negative_edge_sampler,
+                              data,
+                              n_neighbors,
+                              batch_size: int = 200):
+    """
+    仅评估 AUC‑ROC。
+
+    参数
+    ----
+    model : nn.Module
+        边预测模型，前向接口为
+        model(src, dst, neg_nodes, ts, eidx, n_neighbors) → (h_src, h_pos, h_neg)
+    negative_edge_sampler : Sampler
+        负边采样器，需先设置 seed，并实现 .reset_random_state() 与 .sample()
+    data : Data
+        包含 sources / destinations / timestamps / edge_idxs
+    n_neighbors : int
+        每个节点采样的邻居数
+    batch_size : int
+        推理批大小
+    """
+    assert negative_edge_sampler.seed is not None, "为保证可重复性，请先设置 sampler.seed"
+    negative_edge_sampler.reset_random_state()
+
+    model.eval()
+
+    TEST_BS = batch_size
+    num_edges = len(data.sources)
+    num_batches = math.ceil(num_edges / TEST_BS)
+
+    auc_scores = []
+
+    for k in range(num_batches):
+        s, e = k * TEST_BS, min(num_edges, (k + 1) * TEST_BS)
+
+        src_batch   = data.sources[s:e]
+        dst_batch   = data.destinations[s:e]
+        ts_batch    = data.timestamps[s:e]
+        eidx_batch  = data.edge_idxs[s:e]
+
+        batch_size_cur = len(src_batch)
+        _, neg_batch = negative_edge_sampler.sample(batch_size_cur)
+
+        # 前向：返回 (h_src, h_pos, h_neg)
+        h_src, h_pos, h_neg = model(src_batch, dst_batch,
+                                    neg_batch, ts_batch,
+                                    eidx_batch, n_neighbors)
+
+        # 余弦相似度 → Sigmoid 概率
+        pos_prob = torch.sigmoid(F.cosine_similarity(h_src, h_pos))
+        neg_prob = torch.sigmoid(F.cosine_similarity(h_src, h_neg))
+
+        y_score = np.concatenate([pos_prob.cpu().numpy(),
+                                  neg_prob.cpu().numpy()])
+        y_true  = np.concatenate([np.ones(batch_size_cur),
+                                  np.zeros(batch_size_cur)])
+
+        auc_scores.append(roc_auc_score(y_true, y_score))
+
+    return float(np.mean(auc_scores))
+
 
 def eval_node_classification(tgn, decoder, data, edge_idxs, batch_size, n_neighbors):
   pred_prob = np.zeros(len(data.sources))
